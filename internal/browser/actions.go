@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
+	"github.com/omer/go-bot/pkg/utils"
 )
 
 // Type types text into an element identified by the CSS selector.
@@ -259,5 +260,184 @@ func (b *Browser) GoBack() error {
 func (b *Browser) GoForward() error {
 	return chromedp.Run(b.ctx,
 		chromedp.NavigateForward(),
+	)
+}
+
+// TypeHumanLike types text character by character with random delays to simulate human typing.
+// This helps avoid bot detection by mimicking natural typing patterns.
+//
+// Example:
+//
+//	err := browser.TypeHumanLike("input[name='q']", "golang tutorial")
+func (b *Browser) TypeHumanLike(selector, text string) error {
+	if selector == "" {
+		return fmt.Errorf("selector cannot be empty")
+	}
+
+	// Wait for element and clear it
+	if err := chromedp.Run(b.ctx,
+		chromedp.WaitVisible(selector),
+		chromedp.Clear(selector),
+		chromedp.Click(selector),
+	); err != nil {
+		return err
+	}
+
+	// Type each character with random delay
+	for _, char := range text {
+		delay := utils.RandomDuration(50*time.Millisecond, 200*time.Millisecond)
+
+		if err := chromedp.Run(b.ctx,
+			chromedp.SendKeys(selector, string(char)),
+			chromedp.Sleep(delay),
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ClickWithDelay clicks an element after waiting for a random human-like delay.
+// This helps simulate natural user behavior.
+//
+// Example:
+//
+//	err := browser.ClickWithDelay("button[type='submit']", 1*time.Second, 3*time.Second)
+func (b *Browser) ClickWithDelay(selector string, minDelay, maxDelay time.Duration) error {
+	if selector == "" {
+		return fmt.Errorf("selector cannot be empty")
+	}
+
+	delay := utils.RandomDuration(minDelay, maxDelay)
+
+	return chromedp.Run(b.ctx,
+		chromedp.WaitVisible(selector),
+		chromedp.Sleep(delay),
+		chromedp.Click(selector),
+	)
+}
+
+// ScrollRandom scrolls the page by random amounts to simulate human browsing.
+// It scrolls down with some variation in scroll distance.
+//
+// Example:
+//
+//	err := browser.ScrollRandom(3, 500, 1000)
+func (b *Browser) ScrollRandom(times int, minPixels, maxPixels int) error {
+	for i := 0; i < times; i++ {
+		pixels := utils.RandomInt(minPixels, maxPixels)
+		delay := utils.RandomDuration(500*time.Millisecond, 2*time.Second)
+
+		if err := chromedp.Run(b.ctx,
+			chromedp.Evaluate(fmt.Sprintf("window.scrollBy(0, %d)", pixels), nil),
+			chromedp.Sleep(delay),
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// WaitRandom waits for a random duration between min and max.
+// Useful for simulating human reading/thinking time.
+//
+// Example:
+//
+//	err := browser.WaitRandom(2*time.Second, 5*time.Second)
+func (b *Browser) WaitRandom(min, max time.Duration) error {
+	delay := utils.RandomDuration(min, max)
+	return b.Sleep(delay)
+}
+
+// MouseMoveToElement moves the mouse to an element before interacting with it.
+// This can help bypass some bot detection systems.
+//
+// Example:
+//
+//	err := browser.MouseMoveToElement("button#submit")
+func (b *Browser) MouseMoveToElement(selector string) error {
+	if selector == "" {
+		return fmt.Errorf("selector cannot be empty")
+	}
+
+	// Move mouse to element center
+	script := fmt.Sprintf(`
+		const element = document.querySelector('%s');
+		if (element) {
+			const rect = element.getBoundingClientRect();
+			const x = rect.left + rect.width / 2;
+			const y = rect.top + rect.height / 2;
+			const event = new MouseEvent('mousemove', {
+				view: window,
+				bubbles: true,
+				cancelable: true,
+				clientX: x,
+				clientY: y
+			});
+			element.dispatchEvent(event);
+		}
+	`, selector)
+
+	return chromedp.Run(b.ctx,
+		chromedp.WaitVisible(selector),
+		chromedp.Evaluate(script, nil),
+	)
+}
+
+// ScrollToElementSmoothly scrolls to an element smoothly with a delay.
+// This is more human-like than instant scrolling.
+//
+// Example:
+//
+//	err := browser.ScrollToElementSmoothly("div.footer")
+func (b *Browser) ScrollToElementSmoothly(selector string) error {
+	if selector == "" {
+		return fmt.Errorf("selector cannot be empty")
+	}
+
+	script := fmt.Sprintf(`
+		const element = document.querySelector('%s');
+		if (element) {
+			element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		}
+	`, selector)
+
+	delay := utils.RandomDuration(500*time.Millisecond, 1500*time.Millisecond)
+
+	return chromedp.Run(b.ctx,
+		chromedp.Evaluate(script, nil),
+		chromedp.Sleep(delay),
+	)
+}
+
+// HoverElement simulates hovering over an element.
+// This can trigger hover effects and appear more human-like.
+//
+// Example:
+//
+//	err := browser.HoverElement("a.menu-item")
+func (b *Browser) HoverElement(selector string) error {
+	if selector == "" {
+		return fmt.Errorf("selector cannot be empty")
+	}
+
+	script := fmt.Sprintf(`
+		const element = document.querySelector('%s');
+		if (element) {
+			const event = new MouseEvent('mouseover', {
+				view: window,
+				bubbles: true,
+				cancelable: true
+			});
+			element.dispatchEvent(event);
+		}
+	`, selector)
+
+	return chromedp.Run(b.ctx,
+		chromedp.WaitVisible(selector),
+		chromedp.Evaluate(script, nil),
+		chromedp.Sleep(utils.RandomDuration(100*time.Millisecond, 500*time.Millisecond)),
 	)
 }

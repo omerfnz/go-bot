@@ -210,9 +210,75 @@ func (s *Searcher) FindTarget(targetURL string) (*SearchResult, error) {
 	return nil, fmt.Errorf("target URL not found: %s", targetURL)
 }
 
-// HasCaptcha checks if a CAPTCHA is present on the page
+// HasCaptcha checks if a CAPTCHA is present on the page.
+// It checks for various CAPTCHA indicators including reCAPTCHA, Cloudflare, and generic CAPTCHA elements.
 func (s *Searcher) HasCaptcha() bool {
-	return s.browser.ElementExists(s.selectors.CaptchaFrame)
+	// Check for reCAPTCHA iframe
+	if s.browser.ElementExists(s.selectors.CaptchaFrame) {
+		s.logger.Info("reCAPTCHA detected (iframe)")
+		return true
+	}
+
+	// Check for reCAPTCHA v3 indicators
+	if s.browser.ElementExists("div.g-recaptcha") {
+		s.logger.Info("reCAPTCHA detected (div)")
+		return true
+	}
+
+	// Check for Cloudflare challenge
+	if s.browser.ElementExists("#challenge-form") ||
+		s.browser.ElementExists(".cf-challenge") ||
+		s.browser.ElementExists("div.cf-browser-verification") {
+		s.logger.Info("Cloudflare challenge detected")
+		return true
+	}
+
+	// Check for generic CAPTCHA text
+	currentURL, err := s.browser.GetCurrentURL()
+	if err == nil {
+		if strings.Contains(currentURL, "captcha") ||
+			strings.Contains(currentURL, "challenge") {
+			s.logger.Info("CAPTCHA detected (URL contains captcha/challenge)")
+			return true
+		}
+	}
+
+	// Check for CAPTCHA keywords in page title
+	title, err := s.browser.GetTitle()
+	if err == nil {
+		lowerTitle := strings.ToLower(title)
+		if strings.Contains(lowerTitle, "captcha") ||
+			strings.Contains(lowerTitle, "challenge") ||
+			strings.Contains(lowerTitle, "verify") {
+			s.logger.WithField("title", title).Info("CAPTCHA detected (page title)")
+			return true
+		}
+	}
+
+	return false
+}
+
+// DetectAndLogCaptcha checks for CAPTCHA and logs detailed information
+func (s *Searcher) DetectAndLogCaptcha() bool {
+	hasCaptcha := s.HasCaptcha()
+
+	if hasCaptcha {
+		url, _ := s.browser.GetCurrentURL()
+		title, _ := s.browser.GetTitle()
+
+		s.logger.Warn("CAPTCHA DETECTED", map[string]interface{}{
+			"url":    url,
+			"title":  title,
+			"action": "Please solve manually or use CAPTCHA solving service",
+		})
+
+		// Take screenshot for debugging (optional)
+		if screenshot, err := s.browser.Screenshot(); err == nil {
+			s.logger.WithField("size", len(screenshot)).Debug("CAPTCHA screenshot taken")
+		}
+	}
+
+	return hasCaptcha
 }
 
 // normalizeURL removes protocol, www prefix, and trailing slashes

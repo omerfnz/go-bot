@@ -588,3 +588,132 @@ func TestBrowser_WaitNotVisible_Integration(t *testing.T) {
 	err = browser.WaitNotVisible("#hidden")
 	assert.NoError(t, err)
 }
+
+// Human-like behavior tests
+
+func TestBrowser_TypeHumanLike_EmptySelector(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping browser test in short mode")
+	}
+
+	browser, err := NewBrowser(BrowserOptions{
+		Headless: true,
+		Timeout:  5 * time.Second,
+	})
+	assert.NoError(t, err)
+	defer browser.Close()
+
+	err = browser.TypeHumanLike("", "test")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "selector cannot be empty")
+}
+
+func TestBrowser_ClickWithDelay_EmptySelector(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping browser test in short mode")
+	}
+
+	browser, err := NewBrowser(BrowserOptions{
+		Headless: true,
+		Timeout:  5 * time.Second,
+	})
+	assert.NoError(t, err)
+	defer browser.Close()
+
+	err = browser.ClickWithDelay("", 1*time.Second, 2*time.Second)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "selector cannot be empty")
+}
+
+func TestBrowser_ScrollRandom(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping browser test in short mode")
+	}
+
+	browser, err := NewBrowser(BrowserOptions{
+		Headless: true,
+		Timeout:  5 * time.Second,
+	})
+	assert.NoError(t, err)
+	defer browser.Close()
+
+	// Navigate to a page first
+	err = browser.Navigate("https://example.com")
+	assert.NoError(t, err)
+
+	// ScrollRandom should work
+	err = browser.ScrollRandom(2, 100, 200)
+	assert.NoError(t, err)
+}
+
+func TestBrowser_WaitRandom(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping browser test in short mode")
+	}
+
+	browser, err := NewBrowser(BrowserOptions{
+		Headless: true,
+		Timeout:  5 * time.Second,
+	})
+	assert.NoError(t, err)
+	defer browser.Close()
+
+	start := time.Now()
+	err = browser.WaitRandom(100*time.Millisecond, 200*time.Millisecond)
+	elapsed := time.Since(start)
+
+	assert.NoError(t, err)
+	assert.GreaterOrEqual(t, elapsed, 100*time.Millisecond)
+	assert.LessOrEqual(t, elapsed, 300*time.Millisecond) // Allow some overhead
+}
+
+func TestBrowser_MouseMoveToElement_EmptySelector(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping browser test in short mode")
+	}
+
+	browser, err := NewBrowser(BrowserOptions{
+		Headless: true,
+		Timeout:  5 * time.Second,
+	})
+	assert.NoError(t, err)
+	defer browser.Close()
+
+	err = browser.MouseMoveToElement("")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "selector cannot be empty")
+}
+
+func TestBrowser_ScrollToElementSmoothly_EmptySelector(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping browser test in short mode")
+	}
+
+	browser, err := NewBrowser(BrowserOptions{
+		Headless: true,
+		Timeout:  5 * time.Second,
+	})
+	assert.NoError(t, err)
+	defer browser.Close()
+
+	err = browser.ScrollToElementSmoothly("")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "selector cannot be empty")
+}
+
+func TestBrowser_HoverElement_EmptySelector(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping browser test in short mode")
+	}
+
+	browser, err := NewBrowser(BrowserOptions{
+		Headless: true,
+		Timeout:  5 * time.Second,
+	})
+	assert.NoError(t, err)
+	defer browser.Close()
+
+	err = browser.HoverElement("")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "selector cannot be empty")
+}
