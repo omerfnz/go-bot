@@ -1,0 +1,31 @@
+{
+  "headless": true,
+  "workers": 5,
+  "interval": 300,
+  "keywords": [
+    {
+      "term": "golang tutorial",
+      "target_url": "example.com"
+    },
+    {
+      "term": "go programming",
+      "target_url": "example.com"
+    }
+  ],
+  "proxies": [
+    "http://proxy1.example.com:8080",
+    "http://proxy2.example.com:8080"
+  ],
+  "page_timeout": 30,
+  "search_timeout": 15,
+  "max_retries": 3,
+  "retry_delay": 5,
+  "selectors": {
+    "search_box": "textarea[name='q']",
+    "search_button": "input[name='btnK']",
+    "result_item": "div.g",
+    "result_link": "a[href]",
+    "next_button": "a#pnnext"
+  }
+}
+

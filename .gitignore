@@ -1,0 +1,55 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.out
+
+# Go workspace file
+go.work
+
+# Binary output directory
+bin/
+build/
+
+# Log files
+logs/
+*.log
+
+# Data files
+data/
+stats.json
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Config files (only examples should be tracked)
+config.json
+selectors.json
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Chrome/Chromium data
+.chrome/
+chrome-data/
+
