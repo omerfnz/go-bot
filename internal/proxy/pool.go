@@ -1,8 +1,11 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
+	"math/rand"
 	"sync"
+	"time"
 )
 
 // RotationStrategy defines the strategy for proxy rotation
@@ -87,9 +90,10 @@ func (pp *ProxyPool) Get() (*Proxy, error) {
 			proxy = pp.proxies[pp.current]
 			pp.current = (pp.current + 1) % len(pp.proxies)
 		case RotationStrategyRandom:
-			// Random strategy will be implemented in v1.1
-			proxy = pp.proxies[pp.current]
-			pp.current = (pp.current + 1) % len(pp.proxies)
+			// Use a seeded random number generator
+			r := rand.New(rand.NewSource(time.Now().UnixNano()))
+			idx := r.Intn(len(pp.proxies))
+			proxy = pp.proxies[idx]
 		}
 
 		// Check if proxy is healthy
@@ -214,4 +218,96 @@ func (pp *ProxyPool) GetStats() map[string]interface{} {
 	}
 
 	return stats
+}
+
+// ValidateAll validates all proxies in the pool using a ProxyValidator.
+// It returns a map of proxy URLs to validation errors.
+// Proxies that fail validation are automatically blacklisted.
+//
+// Example:
+//
+//	validator := NewProxyValidator("https://www.google.com", 10*time.Second)
+//	results := pool.ValidateAll(context.Background(), validator)
+//	for proxyURL, err := range results {
+//	    if err != nil {
+//	        log.Printf("Proxy %s failed validation: %v", proxyURL, err)
+//	    }
+//	}
+func (pp *ProxyPool) ValidateAll(ctx context.Context, validator *ProxyValidator) map[string]error {
+	pp.mu.Lock()
+	proxies := make([]*Proxy, len(pp.proxies))
+	copy(proxies, pp.proxies)
+	pp.mu.Unlock()
+
+	// Validate all proxies concurrently
+	results := validator.ValidateAll(ctx, proxies)
+
+	// Blacklist failed proxies
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+
+	for proxyURL, err := range results {
+		if err != nil && proxyURL != "timeout" {
+			// Find and blacklist the proxy
+			for _, proxy := range pp.proxies {
+				if proxy.URL == proxyURL {
+					pp.blacklist[proxy.URL] = true
+					proxy.IsBlacklisted = true
+					break
+				}
+			}
+		}
+	}
+
+	return results
+}
+
+// ResetBlacklist removes all proxies from the blacklist and resets their fail counts.
+func (pp *ProxyPool) ResetBlacklist() {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+
+	pp.blacklist = make(map[string]bool)
+	for _, proxy := range pp.proxies {
+		proxy.IsBlacklisted = false
+		proxy.FailCount = 0
+	}
+}
+
+// AddProxy adds a new proxy to the pool.
+// It parses the proxy URL and returns an error if the URL is invalid.
+func (pp *ProxyPool) AddProxy(proxyURL string) error {
+	proxy, err := ParseProxy(proxyURL)
+	if err != nil {
+		return fmt.Errorf("failed to add proxy: %w", err)
+	}
+
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+
+	pp.proxies = append(pp.proxies, proxy)
+	return nil
+}
+
+// RemoveProxy removes a proxy from the pool by URL.
+// It returns true if the proxy was found and removed, false otherwise.
+func (pp *ProxyPool) RemoveProxy(proxyURL string) bool {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+
+	for i, proxy := range pp.proxies {
+		if proxy.URL == proxyURL {
+			// Remove proxy from slice
+			pp.proxies = append(pp.proxies[:i], pp.proxies[i+1:]...)
+			// Remove from blacklist if present
+			delete(pp.blacklist, proxyURL)
+			// Adjust current index if needed
+			if pp.current >= len(pp.proxies) && len(pp.proxies) > 0 {
+				pp.current = 0
+			}
+			return true
+		}
+	}
+
+	return false
 }

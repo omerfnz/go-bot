@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -520,4 +521,242 @@ func TestProxyPool_ConcurrentRelease(t *testing.T) {
 	assert.Len(t, proxies, 1)
 	// At least some operations should have been recorded
 	assert.Greater(t, proxies[0].SuccessCount+proxies[0].FailCount, 0)
+}
+
+// ===== New Faz 2 tests =====
+
+func TestProxyPool_RandomStrategy(t *testing.T) {
+	urls := []string{
+		"http://proxy1.com:8080",
+		"http://proxy2.com:8080",
+		"http://proxy3.com:8080",
+		"http://proxy4.com:8080",
+		"http://proxy5.com:8080",
+	}
+
+	pool, err := NewProxyPool(urls, RotationStrategyRandom)
+	require.NoError(t, err)
+
+	// Get multiple proxies and track which ones we get
+	seen := make(map[string]int)
+	for i := 0; i < 50; i++ {
+		proxy, err := pool.Get()
+		require.NoError(t, err)
+		seen[proxy.Host]++
+	}
+
+	// With random strategy, we should see multiple different proxies
+	// (probability of seeing only one proxy in 50 attempts is extremely low)
+	assert.Greater(t, len(seen), 1, "Random strategy should select different proxies")
+}
+
+func TestProxyPool_ResetBlacklist(t *testing.T) {
+	urls := []string{
+		"http://proxy1.com:8080",
+		"http://proxy2.com:8080",
+	}
+
+	pool, err := NewProxyPool(urls, RotationStrategyRoundRobin)
+	require.NoError(t, err)
+
+	// Blacklist all proxies
+	proxy1, _ := pool.Get()
+	pool.Blacklist(proxy1)
+	proxy2, _ := pool.Get()
+	pool.Blacklist(proxy2)
+
+	assert.Equal(t, 0, pool.HealthyCount())
+
+	// Reset blacklist
+	pool.ResetBlacklist()
+
+	// All should be healthy again
+	assert.Equal(t, 2, pool.HealthyCount())
+	assert.Equal(t, 0, proxy1.FailCount)
+	assert.Equal(t, 0, proxy2.FailCount)
+	assert.False(t, proxy1.IsBlacklisted)
+	assert.False(t, proxy2.IsBlacklisted)
+}
+
+func TestProxyPool_AddProxy(t *testing.T) {
+	urls := []string{"http://proxy1.com:8080"}
+	pool, err := NewProxyPool(urls, RotationStrategyRoundRobin)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, pool.Size())
+
+	// Add a new proxy
+	err = pool.AddProxy("http://proxy2.com:8080")
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, pool.Size())
+
+	// Get proxies and verify both are present
+	proxies := pool.GetProxies()
+	hosts := []string{proxies[0].Host, proxies[1].Host}
+	assert.Contains(t, hosts, "proxy1.com")
+	assert.Contains(t, hosts, "proxy2.com")
+}
+
+func TestProxyPool_AddProxy_InvalidURL(t *testing.T) {
+	urls := []string{"http://proxy1.com:8080"}
+	pool, err := NewProxyPool(urls, RotationStrategyRoundRobin)
+	require.NoError(t, err)
+
+	err = pool.AddProxy("invalid-url")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to add proxy")
+
+	// Pool size should remain unchanged
+	assert.Equal(t, 1, pool.Size())
+}
+
+func TestProxyPool_RemoveProxy(t *testing.T) {
+	urls := []string{
+		"http://proxy1.com:8080",
+		"http://proxy2.com:8080",
+		"http://proxy3.com:8080",
+	}
+	pool, err := NewProxyPool(urls, RotationStrategyRoundRobin)
+	require.NoError(t, err)
+
+	assert.Equal(t, 3, pool.Size())
+
+	// Remove a proxy
+	removed := pool.RemoveProxy("http://proxy2.com:8080")
+	assert.True(t, removed)
+	assert.Equal(t, 2, pool.Size())
+
+	// Verify proxy is gone
+	proxies := pool.GetProxies()
+	for _, proxy := range proxies {
+		assert.NotEqual(t, "proxy2.com", proxy.Host)
+	}
+}
+
+func TestProxyPool_RemoveProxy_NotFound(t *testing.T) {
+	urls := []string{"http://proxy1.com:8080"}
+	pool, err := NewProxyPool(urls, RotationStrategyRoundRobin)
+	require.NoError(t, err)
+
+	removed := pool.RemoveProxy("http://nonexistent.com:8080")
+	assert.False(t, removed)
+	assert.Equal(t, 1, pool.Size())
+}
+
+func TestProxyPool_RemoveProxy_AdjustsCurrentIndex(t *testing.T) {
+	urls := []string{
+		"http://proxy1.com:8080",
+		"http://proxy2.com:8080",
+	}
+	pool, err := NewProxyPool(urls, RotationStrategyRoundRobin)
+	require.NoError(t, err)
+
+	// Get both proxies to advance current index
+	pool.Get()
+	pool.Get()
+
+	// Current index should be 0 now (wrapped around)
+	// Remove both proxies
+	pool.RemoveProxy("http://proxy1.com:8080")
+	pool.RemoveProxy("http://proxy2.com:8080")
+
+	// Current index should be adjusted
+	assert.Equal(t, 0, pool.current)
+}
+
+func TestProxyPool_RemoveProxy_RemovesFromBlacklist(t *testing.T) {
+	urls := []string{
+		"http://proxy1.com:8080",
+		"http://proxy2.com:8080",
+	}
+	pool, err := NewProxyPool(urls, RotationStrategyRoundRobin)
+	require.NoError(t, err)
+
+	// Blacklist a proxy
+	proxy, _ := pool.Get()
+	pool.Blacklist(proxy)
+	proxyURL := proxy.URL
+
+	assert.True(t, pool.IsBlacklisted(proxyURL))
+
+	// Remove the proxy
+	removed := pool.RemoveProxy(proxyURL)
+	assert.True(t, removed)
+
+	// Should no longer be in blacklist
+	assert.False(t, pool.IsBlacklisted(proxyURL))
+}
+
+func TestProxyPool_ValidateAll(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	urls := []string{
+		"http://proxy1.example.com:8080",
+		"http://proxy2.example.com:8080",
+	}
+	pool, err := NewProxyPool(urls, RotationStrategyRoundRobin)
+	require.NoError(t, err)
+
+	validator := NewProxyValidator("https://www.google.com", 2*time.Second)
+	results := pool.ValidateAll(context.Background(), validator)
+
+	// All should fail as they're not real proxies
+	assert.Len(t, results, 2)
+	for url, err := range results {
+		if url != "timeout" {
+			assert.Error(t, err)
+		}
+	}
+
+	// Failed proxies should be blacklisted
+	assert.Equal(t, 0, pool.HealthyCount())
+}
+
+func TestProxyPool_ValidateAll_WithTimeout(t *testing.T) {
+	urls := []string{"http://proxy.example.com:8080"}
+	pool, err := NewProxyPool(urls, RotationStrategyRoundRobin)
+	require.NoError(t, err)
+
+	validator := NewProxyValidator("https://www.google.com", 1*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	results := pool.ValidateAll(ctx, validator)
+	assert.NotEmpty(t, results)
+}
+
+func TestProxyPool_ConcurrentAddRemove(t *testing.T) {
+	urls := []string{"http://proxy1.com:8080"}
+	pool, err := NewProxyPool(urls, RotationStrategyRoundRobin)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	operations := 20
+
+	// Concurrent add operations
+	for i := 0; i < operations; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			proxyURL := "http://proxy" + string(rune('a'+idx)) + ".com:8080"
+			_ = pool.AddProxy(proxyURL)
+		}(i)
+	}
+
+	// Concurrent get operations
+	for i := 0; i < operations; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = pool.Get()
+		}()
+	}
+
+	wg.Wait()
+
+	// Pool should have grown (at least some adds should have succeeded)
+	assert.Greater(t, pool.Size(), 1)
 }
